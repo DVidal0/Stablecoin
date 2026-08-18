@@ -22,7 +22,7 @@
 
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.35;
+pragma solidity ^0.8.35;
 
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
@@ -58,6 +58,8 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
     error DSCEngine__TokenNotAllowed(address token);
     error DSCEngine__TransferFailed();
+    error DSCEngine__BreaksHealthFactor(uint256 userHealthFactor);
+    error DSCEngine__MintFailed();
 
     ///////////////////////
     // Type Declarations //
@@ -68,6 +70,9 @@ contract DSCEngine is ReentrancyGuard {
     /////////////////////
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
+    uint256 private constant LIQUIDATION_THRESHOLD = 50; // 200% overcollateralized
+    uint256 private constant LIQUIDATION_PRECISION = 100;
+    uint256 private constant MIN_HEALTH_FACTOR = 1;
 
     DecentralizedStableCoin private immutable i_dsc;
 
@@ -170,7 +175,10 @@ contract DSCEngine is ReentrancyGuard {
     function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant{
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
-        
+        bool minted = i_dsc.mint(msg.sender, amountDscToMint);
+        if (!minted) {
+            revert DSCEngine__MintFailed();
+        }
     }
 
     //////////////////////////////////
@@ -189,12 +197,31 @@ contract DSCEngine is ReentrancyGuard {
     */
     function _healthFactor(address user) private view returns (uint256 healthFactor) {
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
-        //return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
+        return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
     }
 
+    /*
+    * Calculates the health factor given the total DSC minted and the collateral value in USD.
+    */
+    function _calculateHealthFactor(uint256 totalDscMinted, uint256 collateralValueInUsd) internal pure returns (uint256) {
+        // $1000 ETH / 100 DSC
+        // 1000 * 50 / 100 = 500 / 100 = 5 > 1 so we are good
+
+        // $150 ETH / 100 DSC
+        // 150 * 50 / 100 = 75 / 100 = 0.75 < 1 so we are undercollateralized
+
+        if (totalDscMinted == 0) return type(uint256).max;
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted;
+    }
+
+    // Check the health factor of the user.
+    // If it is below the minimum, revert.
     function _revertIfHealthFactorIsBroken (address user) internal view {
-        // Check the health factor of the user.
-        // If it is below the minimum, revert.
+        uint256 userHealthFactor = _healthFactor(user);
+        if (userHealthFactor < MIN_HEALTH_FACTOR) {
+            revert DSCEngine__BreaksHealthFactor(userHealthFactor);
+        }
 
     }
 
@@ -208,7 +235,7 @@ contract DSCEngine is ReentrancyGuard {
     //////////////////////////////////////////////
 
 
-    /////////////////////////////////////////////
+    ///////////////////////////////////////////// 
     // External & Public View & Pure Functions //
     /////////////////////////////////////////////
 
