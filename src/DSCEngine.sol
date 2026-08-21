@@ -343,4 +343,8 @@ contract DSCEngine is ReentrancyGuard {
         // forge-lint: disable-next-line(unsafe-typecast)
         return (uint(price) * amount * ADDITIONAL_FEED_PRECISION) / PRECISION;
     }
+
+    function getAccountInformation(address user) external view returns (uint256 totalDscMinted, uint256 collateralValueInUsd) {
+        (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
 }
