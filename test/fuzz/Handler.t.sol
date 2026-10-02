@@ -9,6 +9,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "../../src/DSCEngine.sol";
 import {ERC20Mock} from "@openzeppelin/mocks/token/ERC20Mock.sol";
+import {MockV3Aggregator} from "..//mocks/MockV3Aggregator.sol";
 
 
 contract Handler  is Test {
@@ -17,8 +18,8 @@ contract Handler  is Test {
     ERC20Mock weth;
     ERC20Mock wbtc;
 
-    uint256 public timesMintIsCalled;
     address[] public usersWithCollateralDeposited;
+    MockV3Aggregator public ethUsdPriceFeed;
 
     uint256 MAX_DEPOSIT_SIZE = type(uint96).max; //Max uint96 value. Very big number, but no overflow in case of repeated deposits
 
@@ -28,7 +29,8 @@ contract Handler  is Test {
         address[] memory collateralTokens = dscEngine.getCollateralTokens();
         weth = ERC20Mock(collateralTokens[0]);
         wbtc = ERC20Mock(collateralTokens[1]);
-        timesMintIsCalled = 0;
+
+        ethUsdPriceFeed = MockV3Aggregator(dscEngine.getCollateralTokenPriceFeed(address(weth)));
     }
 
     function mintDsc(uint256 amount, uint256 addressSeed) public {
@@ -51,7 +53,6 @@ contract Handler  is Test {
         vm.startPrank(sender);
         dscEngine.mintDsc(amount);
         vm.stopPrank();
-        timesMintIsCalled++;
     }
 
     function depositCollateral(uint256 collateralSeed, uint256 amountCollateral) public {
@@ -91,6 +92,13 @@ contract Handler  is Test {
         }
         dscEngine.redeemCollateral(address(collateral), amountCollateral);
     }
+    
+    /*
+    function _getCollateralPrice(uint96 newPrice) public {
+        int256 newPriceInt = int256(uint256(newPrice));
+
+        ethUsdPriceFeed.updateAnswer(newPriceInt);
+    }*/
 
     function _getCollateralFromSeed(uint256 collateralSeed) private view returns (ERC20Mock) {
         if(collateralSeed % 2 == 0) {
